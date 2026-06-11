@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hand Tracking Audio</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 0;
+        padding: 1rem;
+        display: grid;
+        gap: 1rem;
+        place-items: center;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      #video {
+        width: min(90vw, 720px);
+        border-radius: 12px;
+        transform: scaleX(-1);
+        border: 1px solid #334155;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 0.7rem 1rem;
+        font-size: 1rem;
+        background: #2563eb;
+        color: #fff;
+        cursor: pointer;
+      }
+      #status {
+        opacity: 0.9;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  </head>
+  <body>
+    <h1>Hand Tracking Audio</h1>
+    <button id="startBtn">Start</button>
+    <p id="status">Click Start to enable camera + audio.</p>
+    <video id="video" playsinline></video>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const startBtn = document.getElementById("startBtn");
+      const videoEl = document.getElementById("video");
+
+      let audioContext;
+      let oscillator;
+      let filter;
+      let gainNode;
+      let camera;
+      const MIN_FREQUENCY = 140;
+      const FREQUENCY_RANGE = 820;
+      const MIN_GAIN = 0.02;
+      const MAX_GAIN = 0.35;
+      const MIN_CUTOFF = 350;
+      const CUTOFF_RANGE = 3200;
+      const PINCH_DISTANCE_SCALE = 8;
+
+      function smooth(current, target, alpha = 0.2) {
+        return current + (target - current) * alpha;
+      }
+
+      function updateAudio(landmarks) {
+        const wrist = landmarks[0];
+        const thumbTip = landmarks[4];
+        const indexTip = landmarks[8];
+
+        const x = 1 - wrist.x;
+        const y = 1 - wrist.y;
+        const targetFreq = MIN_FREQUENCY + x * FREQUENCY_RANGE;
+        const targetGain = Math.max(MIN_GAIN, Math.min(MAX_GAIN, y * MAX_GAIN));
+
+        const pinchDistance = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+        const pinch = Math.max(0, Math.min(1, 1 - pinchDistance * PINCH_DISTANCE_SCALE));
+        const targetCutoff = MIN_CUTOFF + pinch * CUTOFF_RANGE;
+
+        oscillator.frequency.value = smooth(oscillator.frequency.value, targetFreq);
+        gainNode.gain.value = smooth(gainNode.gain.value, targetGain);
+        filter.frequency.value = smooth(filter.frequency.value, targetCutoff);
+        statusEl.textContent = `freq ${Math.round(oscillator.frequency.value)}Hz • volume ${gainNode.gain.value.toFixed(2)} • brightness ${Math.round(filter.frequency.value)}Hz`;
+      }
+
+      async function start() {
+        startBtn.disabled = true;
+        startBtn.textContent = "Running...";
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        oscillator = audioContext.createOscillator();
+        filter = audioContext.createBiquadFilter();
+        gainNode = audioContext.createGain();
+        oscillator.type = "sawtooth";
+        oscillator.frequency.value = 220;
+        filter.type = "lowpass";
+        filter.frequency.value = 1000;
+        gainNode.gain.value = 0.05;
+        oscillator.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start();
+
+        const hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        });
+        hands.setOptions({
+          maxNumHands: 1,
+          modelComplexity: 0,
+          minDetectionConfidence: 0.6,
+          minTrackingConfidence: 0.5,
+        });
+        hands.onResults((results) => {
+          if (results.multiHandLandmarks && results.multiHandLandmarks.length) {
+            updateAudio(results.multiHandLandmarks[0]);
+          } else {
+            gainNode.gain.value = smooth(gainNode.gain.value, MIN_GAIN);
+            statusEl.textContent = "Show one hand to control the sound.";
+          }
+        });
+
+        camera = new Camera(videoEl, {
+          onFrame: async () => {
+            await hands.send({ image: videoEl });
+          },
+          width: 960,
+          height: 540,
+        });
+        await camera.start();
+        statusEl.textContent = "Camera ready. Move your hand to sculpt sound.";
+      }
+
+      startBtn.addEventListener("click", async () => {
+        try {
+          await start();
+        } catch (error) {
+          startBtn.disabled = false;
+          startBtn.textContent = "Start";
+          statusEl.textContent = `Unable to start: ${error.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>
