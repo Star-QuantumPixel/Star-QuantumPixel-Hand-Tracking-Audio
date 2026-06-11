@@ -56,6 +56,11 @@
       let filter;
       let gainNode;
       let camera;
+      const MIN_FREQUENCY = 140;
+      const FREQUENCY_RANGE = 820;
+      const MIN_CUTOFF = 350;
+      const CUTOFF_RANGE = 3200;
+      const PINCH_DISTANCE_SCALE = 8;
 
       function smooth(current, target, alpha = 0.2) {
         return current + (target - current) * alpha;
@@ -68,12 +73,12 @@
 
         const x = 1 - wrist.x;
         const y = 1 - wrist.y;
-        const targetFreq = 140 + x * 820;
+        const targetFreq = MIN_FREQUENCY + x * FREQUENCY_RANGE;
         const targetGain = Math.max(0.02, Math.min(0.35, y * 0.35));
 
         const pinchDistance = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
-        const pinch = Math.max(0, Math.min(1, 1 - pinchDistance * 8));
-        const targetCutoff = 350 + pinch * 3200;
+        const pinch = Math.max(0, Math.min(1, 1 - pinchDistance * PINCH_DISTANCE_SCALE));
+        const targetCutoff = MIN_CUTOFF + pinch * CUTOFF_RANGE;
 
         oscillator.frequency.value = smooth(oscillator.frequency.value, targetFreq);
         gainNode.gain.value = smooth(gainNode.gain.value, targetGain);
